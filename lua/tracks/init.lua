@@ -12,6 +12,8 @@
 
 local M = {}
 
+local setup_state = "new"
+
 M.point_jump = require("tracks.point_jump")
 M.file_jump = require("tracks.file_jump")
 M.active = require("tracks.active")
@@ -25,15 +27,28 @@ M.buffer_cache = require("tracks.buffer_cache")
 
 ---@param opts Tracks.Opts|nil
 function M.setup(opts)
-    opts = opts or {}
-    M.point_jump.setup(opts.point_jump)
-    M.file_jump.setup(opts.file_jump)
-    M.active.setup(opts.active)
+    if setup_state ~= "new" then
+        error("tracks.setup() may only be called once; restart Neovim to reconfigure tracks", 2)
+    end
 
-    local cache_opts = vim.tbl_extend("force", opts.buffer_cache or {}, {
-        is_pinned = function(path) return M.active.contains(path) end,
-    })
-    M.buffer_cache.setup(cache_opts)
+    setup_state = "initializing"
+    local ok, err = xpcall(function()
+        opts = opts or {}
+        M.point_jump.setup(opts.point_jump)
+        M.file_jump.setup(opts.file_jump)
+        M.active.setup(opts.active)
+
+        local cache_opts = vim.tbl_extend("force", opts.buffer_cache or {}, {
+            is_pinned = function(path) return M.active.contains(path) end,
+        })
+        M.buffer_cache.setup(cache_opts)
+    end, debug.traceback)
+
+    if not ok then
+        setup_state = "new"
+        error(err, 0)
+    end
+    setup_state = "initialized"
 end
 
 return M

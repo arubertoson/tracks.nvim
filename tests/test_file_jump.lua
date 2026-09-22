@@ -77,4 +77,37 @@ T["trackable buffers"]["rejects quick-close views and URI buffers"] = function()
     MiniTest.expect.equality(file_jump()._test.trackable_path(uri), nil)
 end
 
+T["navigation"] = MiniTest.new_set()
+
+T["navigation"]["skips missing files"] = function()
+    local root = vim.fn.tempname()
+    vim.fn.mkdir(root, "p")
+
+    local paths = {}
+    for _, name in ipairs({ "a", "b", "c" }) do
+        paths[name] = vim.fs.joinpath(root, name .. ".lua")
+        vim.fn.writefile({ name }, paths[name])
+    end
+
+    vim.cmd.edit(vim.fn.fnameescape(paths.c))
+    local jump = file_jump()
+    local view = vim.fn.winsaveview()
+    jump.history = {
+        entries = {
+            { path = vim.fs.normalize(paths.a), view = view },
+            { path = vim.fs.normalize(paths.b), view = view },
+            { path = vim.fs.normalize(paths.c), view = view },
+        },
+        index = 3,
+        alternate_index = 2,
+    }
+
+    vim.uv.fs_unlink(paths.b)
+
+    MiniTest.expect.equality(jump.prev(), true)
+    MiniTest.expect.equality(vim.api.nvim_buf_get_name(0), vim.fs.normalize(paths.a))
+    MiniTest.expect.equality(#jump.history.entries, 2)
+    MiniTest.expect.equality(jump.history.index, 1)
+end
+
 return T

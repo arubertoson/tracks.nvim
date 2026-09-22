@@ -43,6 +43,10 @@ M._scope = nil
 
 local normalize = buf.normalize_path
 
+local LOCK_RETRY_COUNT = 100
+local LOCK_RETRY_MS = 10
+local LOCK_STALE_SECONDS = 30
+
 ---@param path string?
 ---@return Tracks.ActiveScope?
 local function scope_for(path) return scope.for_source(path or vim.api.nvim_buf_get_name(0)) end
@@ -56,6 +60,44 @@ local function emit_updated()
             items = M.items(),
         },
     })
+end
+
+---@param path string
+---@return table<string, table<string, string[]>>
+local function read_store(path)
+    if vim.fn.filereadable(path) ~= 1 then return {} end
+
+    local ok, decoded = pcall(
+        function() return vim.json.decode(table.concat(vim.fn.readfile(path), "\n")) end
+    )
+    if ok and type(decoded) == "table" then return decoded end
+
+    log.warn("Failed to read active store", path)
+    return {}
+end
+
+---@param lock_path string
+---@return boolean
+local function acquire_store_lock(lock_path)
+    for attempt = 1, LOCK_RETRY_COUNT do
+        local created, err, code = vim.uv.fs_mkdir(lock_path, 448)
+        if created then return true end
+        if code ~= "EEXIST" then
+            log.warn("Failed to create active-store lock", lock_path, err)
+            return false
+        end
+
+        local stat = vim.uv.fs_stat(lock_path)
+        local modified = stat and stat.mtime and stat.mtime.sec or nil
+        if modified and os.time() - modified > LOCK_STALE_SECONDS then
+            vim.uv.fs_rmdir(lock_path)
+        elseif attempt < LOCK_RETRY_COUNT then
+            vim.uv.sleep(LOCK_RETRY_MS)
+        end
+    end
+
+    log.warn("Timed out waiting for active-store lock", lock_path)
+    return false
 end
 
 ---@param path string
@@ -82,28 +124,50 @@ local function write_store(path, encoded)
 end
 
 local function commit()
-    local scope = M._scope or scope_for()
-    if not scope then return end
-    M._scope = scope
+    local active_scope = M._scope or scope_for()
+    if not active_scope then return end
+    M._scope = active_scope
 
     local rels = {}
     for _, path in ipairs(M._items) do
-        local rel = vim.fs.relpath(scope.root, path)
+        local rel = vim.fs.relpath(active_scope.root, path)
         rels[#rels + 1] = rel or path
     end
 
-    M._store[scope.root] = M._store[scope.root] or {}
-    M._store[scope.root][scope.branch] = rels
+    local storage_path = M.config.storage_path
+    vim.fs.mkdir(vim.fs.dirname(storage_path), { parents = true })
 
-    vim.fs.mkdir(vim.fs.dirname(M.config.storage_path), { parents = true })
+    local lock_path = storage_path .. ".lock"
+    if not acquire_store_lock(lock_path) then return end
 
-    local ok, encoded = pcall(vim.json.encode, M._store)
+    local ok, committed = xpcall(function()
+        -- Each Neovim process keeps an in-memory snapshot. Reload under the
+        -- lock so this scope update preserves changes made by other processes.
+        local store = read_store(storage_path)
+        local by_root = store[active_scope.root]
+        if type(by_root) ~= "table" then by_root = {} end
+        store[active_scope.root] = by_root
+        by_root[active_scope.branch] = rels
+        M._store = store
+
+        local encoded_ok, encoded = pcall(vim.json.encode, store)
+        if not encoded_ok then
+            log.warn("Failed to encode active store", encoded)
+            return false
+        end
+
+        return write_store(storage_path, encoded)
+    end, debug.traceback)
+
+    local unlocked, unlock_err = vim.uv.fs_rmdir(lock_path)
+    if not unlocked then log.warn("Failed to release active-store lock", lock_path, unlock_err) end
+
     if not ok then
-        log.warn("Failed to encode active store", encoded)
+        log.warn("Failed to commit active store", storage_path, committed)
         return
     end
 
-    if write_store(M.config.storage_path, encoded) then emit_updated() end
+    if committed then emit_updated() end
 end
 
 local function refresh_scope()
@@ -111,19 +175,7 @@ local function refresh_scope()
     -- needs current active files also needs the persisted store to be ready.
     local loaded_store = false
     if not M._store_loaded then
-        local path = M.config.storage_path
-        if vim.fn.filereadable(path) ~= 1 then
-            M._store = {}
-        else
-            local ok, decoded = pcall(vim.json.decode, table.concat(vim.fn.readfile(path), "\n"))
-            if ok and type(decoded) == "table" then
-                M._store = decoded
-            else
-                log.warn("Failed to read active store", path)
-                M._store = {}
-            end
-        end
-
+        M._store = read_store(M.config.storage_path)
         M._store_loaded = true
         loaded_store = true
     end

@@ -43,7 +43,7 @@ redistribute the code is granted. See [LICENSE](LICENSE).
 
 ## Requirements
 
-- Neovim 0.11 or newer;
+- Neovim 0.13 or newer;
 - Treesitter parsers for semantic point history;
 - `nvim-treesitter-textobjects` queries containing captures such as
   `function.outer`, `method.outer`, `class.outer`, and `block.outer`;
@@ -156,6 +156,9 @@ require("tracks").setup({
 
 `capture_priority` can override semantic textobject precedence. The defaults prefer
 blocks, then functions/methods, then classes.
+
+`setup()` initializes the plugin once per Neovim process. A second call is rejected;
+restart Neovim to apply configuration changes.
 
 ## Non-goals
 

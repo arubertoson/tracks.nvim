@@ -77,25 +77,26 @@ local function restore_view(entry)
 end
 
 ---@param path string
----@return number?
+---@return number? bufnr
+---@return boolean missing
 local function ensure_loaded(path)
     local bufnr = vim.fn.bufnr(path)
     if bufnr ~= -1 and vim.api.nvim_buf_is_valid(bufnr) then
         if not vim.api.nvim_buf_is_loaded(bufnr) then vim.fn.bufload(bufnr) end
-        if vim.api.nvim_buf_is_loaded(bufnr) then return bufnr end
+        if vim.api.nvim_buf_is_loaded(bufnr) then return bufnr, false end
     end
 
-    if not vim.uv.fs_stat(path) then return nil end
+    if not vim.uv.fs_stat(path) then return nil, true end
 
     bufnr = vim.fn.bufadd(path)
-    if bufnr == 0 then return nil end
+    if bufnr == 0 then return nil, false end
 
     vim.fn.bufload(bufnr)
     if not vim.api.nvim_buf_is_valid(bufnr) or not vim.api.nvim_buf_is_loaded(bufnr) then
-        return nil
+        return nil, false
     end
 
-    return bufnr
+    return bufnr, false
 end
 
 local function truncate_forward()
@@ -152,19 +153,45 @@ local function record_enter(bufnr)
 end
 
 ---@param target_index number
----@return boolean
+local function remove_entry(target_index)
+    local history = M.history
+    table.remove(history.entries, target_index)
+
+    if history.index > target_index then
+        history.index = history.index - 1
+    elseif history.index == target_index then
+        history.index = math.min(history.index, #history.entries)
+    end
+
+    if history.alternate_index then
+        if history.alternate_index > target_index then
+            history.alternate_index = history.alternate_index - 1
+        elseif history.alternate_index == target_index then
+            history.alternate_index = nil
+        end
+    end
+end
+
+---@param target_index number
+---@return boolean moved
+---@return boolean missing
 local function navigate_to(target_index)
     local history = M.history
-    if target_index < 1 or target_index > #history.entries then return false end
-    if target_index == history.index then return true end
+    if target_index < 1 or target_index > #history.entries then return false, false end
+    if target_index == history.index then return true, false end
 
     update_current_view(vim.api.nvim_get_current_buf())
 
     local entry = history.entries[target_index]
-    local bufnr = ensure_loaded(entry.path)
+    local bufnr, missing = ensure_loaded(entry.path)
     if not bufnr then
-        log.info("Cannot restore file jump", entry.path)
-        return false
+        if missing then
+            log.info("Dropping missing file jump", entry.path)
+            remove_entry(target_index)
+        else
+            log.info("Cannot restore file jump", entry.path)
+        end
+        return false, missing
     end
 
     local previous_index = history.index
@@ -177,21 +204,30 @@ local function navigate_to(target_index)
 
     if not ok then
         log.warn("Failed to restore file jump", entry.path, err)
-        return false
+        return false, false
     end
 
     history.index = target_index
     history.alternate_index = previous_index > 0 and previous_index or nil
-    return true
+    return true, false
+end
+
+---@param delta -1|1
+---@return boolean moved
+local function move(delta)
+    while true do
+        local moved, missing = navigate_to(M.history.index + delta)
+        if moved or not missing then return moved end
+    end
 end
 
 ---Move backward through chronological file visits.
 ---@return boolean moved
-function M.prev() return navigate_to(M.history.index - 1) end
+function M.prev() return move(-1) end
 
 ---Move forward through chronological file visits.
 ---@return boolean moved
-function M.next() return navigate_to(M.history.index + 1) end
+function M.next() return move(1) end
 
 ---Toggle between the current visit and the visit most recently left.
 ---@return boolean moved

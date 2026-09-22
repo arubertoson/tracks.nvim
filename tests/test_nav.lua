@@ -210,6 +210,32 @@ T["active files"]["persists by root and branch"] = function()
     MiniTest.expect.equality(#active.items(), 0)
 end
 
+T["active files"]["preserves updates from another Neovim snapshot"] = function()
+    local root_a = temp_project("active-concurrent-a", "main")
+    local root_b = temp_project("active-concurrent-b", "main")
+    local storage = vim.fs.joinpath(tmp_root, "active-concurrent.json")
+    local a = temp_file(root_a, "a.lua")
+    local b = temp_file(root_b, "b.lua")
+
+    edit(a)
+    local active_a = setup_active(storage)
+    vim.api.nvim_clear_autocmds({ group = active_a.config.augroup_id })
+
+    edit(b)
+    package.loaded["tracks.active"] = nil
+    local active_b = setup_active(storage)
+    vim.api.nvim_clear_autocmds({ group = active_b.config.augroup_id })
+
+    edit(a)
+    active_a.add()
+    edit(b)
+    active_b.add()
+
+    local decoded = vim.json.decode(table.concat(vim.fn.readfile(storage), "\n"))
+    MiniTest.expect.equality(decoded[vim.fs.normalize(root_a)].main, { "a.lua" })
+    MiniTest.expect.equality(decoded[vim.fs.normalize(root_b)].main, { "b.lua" })
+end
+
 T["buffer cache"] = MiniTest.new_set()
 
 T["buffer cache"]["adopts buffers loaded before setup"] = function()

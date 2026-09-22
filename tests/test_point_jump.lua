@@ -106,4 +106,69 @@ T["semantic-only history"]["previous from an ignored location restores latest po
     MiniTest.expect.equality(state.history.index, 2)
 end
 
+T["semantic ownership"] = MiniTest.new_set()
+
+T["semantic ownership"]["does not transfer a deleted owner to an adjacent function"] = function()
+    local path = vim.fs.joinpath(tmp_root, "deleted-owner.lua")
+    vim.fn.writefile({
+        "local function alpha()",
+        "  return 1",
+        "end",
+        "",
+        "local function beta()",
+        "  return 2",
+        "end",
+        "",
+        "",
+    }, path)
+
+    vim.cmd.edit(vim.fn.fnameescape(path))
+    vim.bo.filetype = "lua"
+    local jump = require("tracks.point_jump")
+    jump.setup({ debounce_ms = 100000 })
+    local state = jump.buffers[vim.fs.normalize(path)]
+
+    jump._test.record_point(state, state.session, view_at(2))
+    MiniTest.expect.equality(state.history.entries[1].semantic.name, "alpha")
+
+    vim.api.nvim_buf_set_lines(0, 0, 4, false, {})
+    jump._test.record_point(state, state.session, view_at(5))
+
+    MiniTest.expect.equality(#state.history.entries, 0)
+end
+
+T["semantic cache"] = MiniTest.new_set()
+
+T["semantic cache"]["reuses captures until the buffer changes"] = function()
+    local path = vim.fs.joinpath(tmp_root, "semantic-cache.lua")
+    vim.fn.writefile({
+        "local function alpha()",
+        "  return 1",
+        "end",
+        "",
+    }, path)
+
+    vim.cmd.edit(vim.fn.fnameescape(path))
+    vim.bo.filetype = "lua"
+    local jump = require("tracks.point_jump")
+    jump.setup({ debounce_ms = 100000 })
+    local state = jump.buffers[vim.fs.normalize(path)]
+
+    jump._test.record_point(state, state.session, view_at(2))
+    local first_cache = state.session.semantic_cache
+    MiniTest.expect.no_equality(first_cache, nil)
+
+    jump._test.record_point(state, state.session, view_at(2))
+    MiniTest.expect.equality(state.session.semantic_cache == first_cache, true)
+
+    vim.api.nvim_buf_set_lines(0, 3, 3, false, { "" })
+    jump._test.record_point(state, state.session, view_at(2))
+
+    MiniTest.expect.equality(state.session.semantic_cache == first_cache, false)
+    MiniTest.expect.equality(
+        state.session.semantic_cache.changetick,
+        vim.api.nvim_buf_get_changedtick(0)
+    )
+end
+
 return T

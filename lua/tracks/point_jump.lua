@@ -76,12 +76,19 @@ M.config = vim.deepcopy(default_config)
 ---@field lnum number
 ---@field col number
 
+---@class Tracks.PointSemanticCache
+---@field changetick number
+---@field filetype string
+---@field config_generation number
+---@field areas Tracks.PointSemanticArea[]
+
 ---@class Tracks.PointSession
 ---@field bufnr number
 ---@field changetick number
 ---@field debounce uv.uv_timer_t
 ---@field extmarks table<Tracks.PointEntry, Tracks.PointEntryExtmarks>
 ---@field ignore_cursor Tracks.PointCursorPosition?
+---@field semantic_cache Tracks.PointSemanticCache?
 
 ---@class Tracks.PointBufferState
 ---@field history Tracks.PointHistory
@@ -89,6 +96,8 @@ M.config = vim.deepcopy(default_config)
 
 ---@type table<string, Tracks.PointBufferState>
 M.buffers = {}
+
+local semantic_config_generation = 0
 
 ---@param view Tracks.PointView
 ---@return Tracks.PointView
@@ -135,21 +144,29 @@ local function semantic_line_count(semantic)
     return math.max(count, 1)
 end
 
----@param bufnr number
----@param view Tracks.PointView
----@return Tracks.PointSemanticArea?
-local function semantic_area_at(bufnr, view)
+---@param session Tracks.PointSession
+---@return Tracks.PointSemanticArea[]?
+local function semantic_areas(session)
+    local bufnr = session.bufnr
+    local changetick = vim.api.nvim_buf_get_changedtick(bufnr)
+    local filetype = vim.api.nvim_get_option_value("filetype", { buf = bufnr })
+    local cache = session.semantic_cache
+    if
+        cache
+        and cache.changetick == changetick
+        and cache.filetype == filetype
+        and cache.config_generation == semantic_config_generation
+    then
+        return cache.areas
+    end
+
     local iterator = ts.iter_textobj_captures(bufnr)
     if not iterator then return nil end
 
-    local row = view.lnum - 1
-    local col = view.col
-    local best = nil
-
+    local areas = {}
     for id, node in iterator.iter do
         local capture = iterator.query.captures[id]
-        local weight = M.config.capture_priority[capture]
-        if not weight then goto continue end
+        if not M.config.capture_priority[capture] then goto continue end
 
         local sr, sc, er, ec = node:range()
         local semantic = {
@@ -161,11 +178,42 @@ local function semantic_area_at(bufnr, view)
             end_row = er,
             end_col = ec,
         }
-        local lines = semantic_line_count(semantic)
 
-        if capture == "block.outer" and lines < M.config.min_block_lines then goto continue end
+        if
+            capture ~= "block.outer"
+            or semantic_line_count(semantic) >= M.config.min_block_lines
+        then
+            areas[#areas + 1] = semantic
+        end
+
+        ::continue::
+    end
+
+    session.semantic_cache = {
+        changetick = changetick,
+        filetype = filetype,
+        config_generation = semantic_config_generation,
+        areas = areas,
+    }
+    return areas
+end
+
+---@param session Tracks.PointSession
+---@param view Tracks.PointView
+---@return Tracks.PointSemanticArea?
+local function semantic_area_at(session, view)
+    local areas = semantic_areas(session)
+    if not areas then return nil end
+
+    local row = view.lnum - 1
+    local col = view.col
+    local best = nil
+
+    for _, semantic in ipairs(areas) do
         if not semantic_contains(semantic, row, col) then goto continue end
 
+        local weight = M.config.capture_priority[semantic.capture]
+        local lines = semantic_line_count(semantic)
         if not best or weight < best.weight or (weight == best.weight and lines < best.lines) then
             best = { area = semantic, weight = weight, lines = lines }
         end
@@ -179,13 +227,18 @@ end
 ---@param area Tracks.PointSemanticArea
 ---@param other Tracks.PointSemanticArea
 ---@return boolean
+local function same_semantic_owner(area, other)
+    return area.capture == other.capture and area.kind == other.kind and area.name == other.name
+end
+
+---@param area Tracks.PointSemanticArea
+---@param other Tracks.PointSemanticArea
+---@return boolean
 local function same_semantic_area(area, other)
     -- Entry semantics are reclassified from their extmark before matching, so
     -- both sides refer to the current parse. Exact ranges avoid conflating
     -- adjacent blocks or duplicate symbol names.
-    return area.capture == other.capture
-        and area.kind == other.kind
-        and area.name == other.name
+    return same_semantic_owner(area, other)
         and area.start_row == other.start_row
         and area.start_col == other.start_col
         and area.end_row == other.end_row
@@ -255,13 +308,12 @@ local function sanitize_history(state, session)
         refresh_view_from_extmark(session, extmarks.anchor, entry.anchor_view)
         refresh_view_from_extmark(session, extmarks.target, entry.target_view)
 
-        local semantic = semantic_area_at(session.bufnr, entry.anchor_view)
-        if semantic then
+        local semantic = semantic_area_at(session, entry.anchor_view)
+        if semantic and same_semantic_owner(entry.semantic, semantic) then
             entry.semantic = semantic
         else
-            -- Point history contains semantic landings only. If an edit removes
-            -- the owning node, keeping its old location would create exactly the
-            -- kind of context-free point this module is intended to avoid.
+            -- An extmark can move into an adjacent semantic node when its owner
+            -- is deleted. Never transfer a landing to that unrelated owner.
             delete_entry_extmarks(session, entry)
             table.remove(state.history.entries, index)
             if index <= state.history.index then state.history.index = state.history.index - 1 end
@@ -341,7 +393,7 @@ local function record_point(state, session, view)
     end
 
     local history = state.history
-    local semantic = semantic_area_at(session.bufnr, view)
+    local semantic = semantic_area_at(session, view)
     if not semantic then return false end
 
     local current = history.entries[history.index]
@@ -504,6 +556,7 @@ local function on_buf_enter(bufnr)
         debounce = assert(vim.uv.new_timer()),
         extmarks = {},
         ignore_cursor = nil,
+        semantic_cache = nil,
     }
     state.session = session
 
@@ -558,6 +611,7 @@ end
 ---@param opts Tracks.PointJumpConfig?
 function M.setup(opts)
     if opts then M.config = vim.tbl_deep_extend("force", M.config, opts) end
+    semantic_config_generation = semantic_config_generation + 1
 
     if not M.config.augroup_id then
         M.config.augroup_id = vim.api.nvim_create_augroup("tracks_point_jump", { clear = true })
