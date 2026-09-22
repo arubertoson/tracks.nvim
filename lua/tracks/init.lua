@@ -10,6 +10,8 @@
 --- This module wires those pieces together so the leaf modules can stay
 --- independent of each other.
 
+local config = require("tracks.config")
+
 local M = {}
 
 local setup_state = "new"
@@ -19,29 +21,24 @@ M.file_jump = require("tracks.file_jump")
 M.active = require("tracks.active")
 M.buffer_cache = require("tracks.buffer_cache")
 
----@class Tracks.Opts
----@field point_jump Tracks.PointJumpConfig|nil
----@field file_jump Tracks.FileJumpConfig|nil
----@field active Tracks.ActiveConfig|nil
----@field buffer_cache Tracks.BufferCacheConfig|nil
-
 ---@param opts Tracks.Opts|nil
 function M.setup(opts)
     if setup_state ~= "new" then
         error("tracks.setup() may only be called once; restart Neovim to reconfigure tracks", 2)
     end
 
+    -- Validate the complete public boundary before activating any subsystem.
+    local normalized = config.normalize(opts)
+
     setup_state = "initializing"
     local ok, err = xpcall(function()
-        opts = opts or {}
-        M.point_jump.setup(opts.point_jump)
-        M.file_jump.setup(opts.file_jump)
-        M.active.setup(opts.active)
-
-        local cache_opts = vim.tbl_extend("force", opts.buffer_cache or {}, {
-            is_pinned = function(path) return M.active.contains(path) end,
-        })
-        M.buffer_cache.setup(cache_opts)
+        M.point_jump._setup(normalized.point_jump)
+        M.file_jump._setup(normalized.file_jump)
+        M.active._setup(normalized.active)
+        M.buffer_cache._setup(
+            normalized.buffer_cache,
+            function(path) return M.active.contains(path) end
+        )
     end, debug.traceback)
 
     if not ok then

@@ -26,7 +26,7 @@ they answer different questions and often preserve coordinates rather than inten
   restores the saved view even after a buffer was unloaded.
 - **Which files belong to this task?** Active files are explicit slots persisted per
   project and Git branch.
-- **What can Neovim forget?** The buffer cache unloads cold files while protecting
+- **What can Neovim forget?** The buffer cache wipes cold file buffers while protecting
   visible, modified, and active files.
 
 The result is less buffer housekeeping and fewer context-free jumps.
@@ -65,6 +65,9 @@ require("tracks").setup()
 ```
 
 The plugin owns tracking and lifecycle autocmds but no global mappings.
+
+Run `:checkhealth tracks` to verify the Neovim version, current-buffer Treesitter
+parser and textobject captures, active-file storage, and project scope.
 
 ## Suggested mappings
 
@@ -106,7 +109,7 @@ into one useless point.
 Normal file-buffer transitions create a chronological trail. Navigation performed by
 the trail itself is invisible to tracking, so moving backward does not immediately
 create a new forward branch. Each visit stores the window view and can reopen an
-unloaded file from disk.
+evicted file from disk.
 
 ### Active files
 
@@ -120,8 +123,10 @@ The plugin emits `User TracksActiveUpdated` after the active set changes.
 
 Loaded normal-file buffers are ordered by recent use. Pruning is a soft limit:
 visible, modified, active, or explicitly protected buffers stay loaded even above the
-configured maximum. Set `vim.b[buf].__bufdel_protected = true` to protect an additional
-buffer.
+configured maximum. Eviction uses `nvim_buf_delete()`, so the buffer and its volatile
+buffer-local state are removed rather than merely unloaded; persistent navigation
+state keeps paths separately and can reopen the file from disk. Set
+`vim.b[buf].__bufdel_protected = true` to protect an additional buffer.
 
 Set `vim.b[buf].tracks_exclude = true` to exclude a normal file buffer from all
 tracking.
@@ -157,8 +162,23 @@ require("tracks").setup({
 `capture_priority` can override semantic textobject precedence. The defaults prefer
 blocks, then functions/methods, then classes.
 
-`setup()` initializes the plugin once per Neovim process. A second call is rejected;
-restart Neovim to apply configuration changes.
+`setup()` validates all option names, types, and ranges before activation. It initializes
+the plugin once per Neovim process. A second call is rejected; restart Neovim to apply
+configuration changes.
+
+## Lua API
+
+The supported Lua surface is:
+
+- `require("tracks").setup(opts)`;
+- `point_jump.prev()`, `point_jump.next()`, and `point_jump.reset()`;
+- `file_jump.prev()`, `file_jump.next()`, `file_jump.toggle()`, and `file_jump.reset()`;
+- `active.add()`, `active.remove()`, `active.replace()`, `active.remove_all()`,
+  `active.select()`, `active.index_of()`, `active.contains()`, and `active.items()`;
+- `buffer_cache.tracked()` for a copy of the current MRU path list.
+
+Functions and fields prefixed with `_`, module configuration tables, resource handles,
+and lifecycle helpers are internal implementation details.
 
 ## Non-goals
 
@@ -178,4 +198,6 @@ just setup
 just check
 ```
 
-`just check` verifies formatting and runs the tests in headless Neovim.
+`just check` verifies the Neovim version, formatting, and tests in headless Neovim.
+CI runs against Neovim nightly while 0.13 is unreleased and will pin the minimum release
+once it is available.

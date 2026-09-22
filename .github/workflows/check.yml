@@ -1,0 +1,33 @@
+name: Check
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  neovim:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        # Neovim 0.13 is currently represented by nightly. Pin v0.13.0 when released.
+        neovim: [nightly]
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: rhysd/action-setup-vim@v1
+        with:
+          version: ${{ matrix.neovim }}
+          neovim: true
+      - uses: extractions/setup-just@v3
+      - uses: jdx/mise-action@v2
+
+      - name: Install test dependencies
+        shell: bash
+        run: |
+          package_root="${XDG_DATA_HOME:-$HOME/.local/share}/nvim/site/pack/tracks/start"
+          mkdir -p "$package_root"
+          git clone --depth 1 https://github.com/echasnovski/mini.nvim "$package_root/mini.nvim"
+          git clone --depth 1 https://github.com/nvim-treesitter/nvim-treesitter "$package_root/nvim-treesitter"
+          git clone --depth 1 https://github.com/nvim-treesitter/nvim-treesitter-textobjects "$package_root/nvim-treesitter-textobjects"
+
+      - run: just check

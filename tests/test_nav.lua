@@ -3,6 +3,8 @@ pcall(vim.cmd, "packadd mini.nvim")
 local MiniTest = _G.MiniTest or require("mini.test")
 if not _G.MiniTest then MiniTest.setup({ silent = true }) end
 
+local config = require("tracks.config")
+
 local T = MiniTest.new_set({
     hooks = {
         pre_case = function()
@@ -37,8 +39,17 @@ end
 
 local function setup_active(storage)
     local active = require("tracks.active")
-    active.setup({ storage_path = storage })
+    active._setup(config.normalize({ active = { storage_path = storage } }).active)
     return active
+end
+
+local function setup_buffer_cache(opts, is_pinned)
+    local buffers = require("tracks.buffer_cache")
+    buffers._setup(
+        config.normalize({ buffer_cache = opts }).buffer_cache,
+        is_pinned or function() return false end
+    )
+    return buffers
 end
 
 T["active files"] = MiniTest.new_set()
@@ -219,12 +230,12 @@ T["active files"]["preserves updates from another Neovim snapshot"] = function()
 
     edit(a)
     local active_a = setup_active(storage)
-    vim.api.nvim_clear_autocmds({ group = active_a.config.augroup_id })
+    vim.api.nvim_create_augroup("tracks_active", { clear = true })
 
     edit(b)
     package.loaded["tracks.active"] = nil
     local active_b = setup_active(storage)
-    vim.api.nvim_clear_autocmds({ group = active_b.config.augroup_id })
+    vim.api.nvim_create_augroup("tracks_active", { clear = true })
 
     edit(a)
     active_a.add()
@@ -248,8 +259,7 @@ T["buffer cache"]["adopts buffers loaded before setup"] = function()
     local buf_b = edit(b)
     edit(c)
 
-    local buffers = require("tracks.buffer_cache")
-    buffers.setup({ max_buffers = 2 })
+    local buffers = setup_buffer_cache({ max_buffers = 2 })
     buffers.prune()
 
     MiniTest.expect.equality(vim.api.nvim_buf_is_loaded(buf_a), false)
@@ -262,8 +272,7 @@ T["buffer cache"]["tracks buffers loaded without entering them"] = function()
     local b = temp_file(root, "b.lua")
 
     edit(a)
-    local buffers = require("tracks.buffer_cache")
-    buffers.setup()
+    local buffers = setup_buffer_cache()
 
     local buf_b = vim.fn.bufadd(b)
     vim.fn.bufload(buf_b)
@@ -277,8 +286,7 @@ T["buffer cache"]["forgets unloaded buffers"] = function()
     local b = temp_file(root, "b.lua")
 
     local buf_a = edit(a)
-    local buffers = require("tracks.buffer_cache")
-    buffers.setup()
+    local buffers = setup_buffer_cache()
     edit(b)
 
     vim.cmd("bunload " .. buf_a)
@@ -293,11 +301,10 @@ T["buffer cache"]["prunes cold unpinned file buffers"] = function()
     local c = temp_file(root, "c.lua")
 
     local buf_a = edit(a)
-    local buffers = require("tracks.buffer_cache")
-    buffers.setup({
-        max_buffers = 2,
-        is_pinned = function(path) return path == vim.fs.normalize(a) end,
-    })
+    local buffers = setup_buffer_cache(
+        { max_buffers = 2 },
+        function(path) return path == vim.fs.normalize(a) end
+    )
 
     local buf_b = edit(b)
     edit(c)
@@ -317,11 +324,10 @@ T["buffer cache"]["prunes when active pins change"] = function()
     local active = setup_active(storage)
     active.add()
 
-    local buffers = require("tracks.buffer_cache")
-    buffers.setup({
-        max_buffers = 1,
-        is_pinned = function(path) return active.contains(path) end,
-    })
+    local buffers = setup_buffer_cache(
+        { max_buffers = 1 },
+        function(path) return active.contains(path) end
+    )
 
     edit(b)
     active.remove(1)

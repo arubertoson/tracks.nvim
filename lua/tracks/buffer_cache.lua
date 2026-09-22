@@ -10,22 +10,16 @@
 --- explicitly protected buffers are retained even when they exceed the limit.
 
 local buf = require("tracks.buffer")
+local config = require("tracks.config")
 local log = require("tracks.log")
 
 local M = {}
 
----@class Tracks.BufferCacheConfig
----@field max_buffers number Total normal file buffers to keep loaded.
----@field is_pinned fun(path: string): boolean
----@field augroup_id number?
-local default_config = {
-    max_buffers = 8,
-    is_pinned = function() return false end,
-    augroup_id = nil,
-}
+local augroup_id = nil
+local is_pinned = function() return false end
 
 ---@type Tracks.BufferCacheConfig
-M.config = vim.tbl_extend("force", {}, default_config)
+M.config = vim.deepcopy(config.defaults.buffer_cache)
 
 ---@type string[] Most recent first.
 M._mru = {}
@@ -137,7 +131,7 @@ function M.prune()
                 end
             end
         end
-        if not protected then protected = M.config.is_pinned(entry.path) end
+        if not protected then protected = is_pinned(entry.path) end
         if not protected then
             local ok, value = pcall(vim.api.nvim_buf_get_var, entry.bufnr, "__bufdel_protected")
             protected = ok and value or false
@@ -165,19 +159,21 @@ function M.tracked()
     return paths
 end
 
----@param opts Tracks.BufferCacheConfig?
-function M.setup(opts)
-    M.config = vim.tbl_extend("force", M.config, opts or {})
+---@param normalized Tracks.BufferCacheConfig
+---@param pinned fun(path: string): boolean
+function M._setup(normalized, pinned)
+    M.config = vim.deepcopy(normalized)
+    is_pinned = pinned
 
     adopt_loaded_buffers()
     M.touch(0)
     vim.schedule(M.prune)
 
-    if not M.config.augroup_id then
-        M.config.augroup_id = vim.api.nvim_create_augroup("tracks_buffer_cache", { clear = true })
+    if not augroup_id then
+        augroup_id = vim.api.nvim_create_augroup("tracks_buffer_cache", { clear = true })
 
         vim.api.nvim_create_autocmd({ "BufReadPost", "BufEnter" }, {
-            group = M.config.augroup_id,
+            group = augroup_id,
             desc = "Tracks buffer cache: track loaded and current file buffers",
             callback = function(ev)
                 M.touch(ev.buf)
@@ -186,7 +182,7 @@ function M.setup(opts)
         })
 
         vim.api.nvim_create_autocmd({ "BufHidden", "BufUnload", "BufDelete", "BufWipeout" }, {
-            group = M.config.augroup_id,
+            group = augroup_id,
             desc = "Tracks buffer cache: remove unloaded files and prune cold buffers",
             callback = function(ev)
                 if
@@ -205,7 +201,7 @@ function M.setup(opts)
         })
 
         vim.api.nvim_create_autocmd("User", {
-            group = M.config.augroup_id,
+            group = augroup_id,
             pattern = "TracksActiveUpdated",
             desc = "Tracks buffer cache: prune after active file pins change",
             callback = function() vim.schedule(M.prune) end,

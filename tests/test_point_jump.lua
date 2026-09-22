@@ -3,6 +3,8 @@ pcall(vim.cmd, "packadd mini.nvim")
 local MiniTest = _G.MiniTest or require("mini.test")
 if not _G.MiniTest then MiniTest.setup({ silent = true }) end
 
+local config = require("tracks.config")
+
 local T = MiniTest.new_set({
     hooks = {
         pre_case = function()
@@ -30,10 +32,10 @@ local function temp_file(name, line_count)
     return path
 end
 
-local function setup_jump(path)
+local function setup_jump(path, opts)
     vim.cmd.edit(vim.fn.fnameescape(path))
     local jump = require("tracks.point_jump")
-    jump.setup()
+    jump._setup(config.normalize({ point_jump = opts }).point_jump)
     return jump, jump.buffers[vim.fs.normalize(path)]
 end
 
@@ -64,14 +66,14 @@ local function entry_at(jump, state, line)
     state.session.extmarks[entry] = {
         anchor = vim.api.nvim_buf_set_extmark(
             state.session.bufnr,
-            jump.config.namespace,
+            jump._test.namespace,
             line - 1,
             0,
             {}
         ),
         target = vim.api.nvim_buf_set_extmark(
             state.session.bufnr,
-            jump.config.namespace,
+            jump._test.namespace,
             line - 1,
             0,
             {}
@@ -122,11 +124,8 @@ T["semantic ownership"]["does not transfer a deleted owner to an adjacent functi
         "",
     }, path)
 
-    vim.cmd.edit(vim.fn.fnameescape(path))
+    local jump, state = setup_jump(path, { debounce_ms = 100000 })
     vim.bo.filetype = "lua"
-    local jump = require("tracks.point_jump")
-    jump.setup({ debounce_ms = 100000 })
-    local state = jump.buffers[vim.fs.normalize(path)]
 
     jump._test.record_point(state, state.session, view_at(2))
     MiniTest.expect.equality(state.history.entries[1].semantic.name, "alpha")
@@ -148,11 +147,8 @@ T["semantic cache"]["reuses captures until the buffer changes"] = function()
         "",
     }, path)
 
-    vim.cmd.edit(vim.fn.fnameescape(path))
+    local jump, state = setup_jump(path, { debounce_ms = 100000 })
     vim.bo.filetype = "lua"
-    local jump = require("tracks.point_jump")
-    jump.setup({ debounce_ms = 100000 })
-    local state = jump.buffers[vim.fs.normalize(path)]
 
     jump._test.record_point(state, state.session, view_at(2))
     local first_cache = state.session.semantic_cache

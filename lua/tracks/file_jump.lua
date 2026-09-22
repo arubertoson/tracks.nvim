@@ -7,20 +7,12 @@
 --- original buffer has been cleaned up.
 
 local buf = require("tracks.buffer")
+local config = require("tracks.config")
 local log = require("tracks.log")
 
 local M = {}
 
----@class Tracks.FileJumpConfig
----@field max_history number
----@field exclude_filetypes string[]
----@field augroup_id number?
-local default_config = {
-    max_history = 100,
-    -- Additional filetypes excluded from this history.
-    exclude_filetypes = {},
-    augroup_id = nil,
-}
+local augroup_id = nil
 
 ---@class Tracks.FileJumpEntry
 ---@field path string Absolute normalized path.
@@ -32,7 +24,7 @@ local default_config = {
 ---@field alternate_index number?
 
 ---@type Tracks.FileJumpConfig
-M.config = vim.tbl_extend("force", {}, default_config)
+M.config = vim.deepcopy(config.defaults.file_jump)
 
 ---@type Tracks.FileJumpHistory
 M.history = {
@@ -248,15 +240,15 @@ function M.reset()
     record_enter(vim.api.nvim_get_current_buf())
 end
 
----@param opts Tracks.FileJumpConfig?
-function M.setup(opts)
-    M.config = vim.tbl_extend("force", M.config, opts or {})
+---@param normalized Tracks.FileJumpConfig
+function M._setup(normalized)
+    M.config = vim.deepcopy(normalized)
 
-    if not M.config.augroup_id then
-        M.config.augroup_id = vim.api.nvim_create_augroup("tracks_file_jump", { clear = true })
+    if not augroup_id then
+        augroup_id = vim.api.nvim_create_augroup("tracks_file_jump", { clear = true })
 
         vim.api.nvim_create_autocmd("BufLeave", {
-            group = M.config.augroup_id,
+            group = augroup_id,
             desc = "Tracks file history: save the departing visit",
             callback = function(ev)
                 if not M._navigating then update_current_view(ev.buf) end
@@ -264,7 +256,7 @@ function M.setup(opts)
         })
 
         vim.api.nvim_create_autocmd("BufEnter", {
-            group = M.config.augroup_id,
+            group = augroup_id,
             desc = "Tracks file history: record an entered file",
             callback = function(ev)
                 if not M._navigating then record_enter(ev.buf) end

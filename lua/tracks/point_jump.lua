@@ -8,42 +8,16 @@
 --- itself to drift through the buffer.
 
 local buf = require("tracks.buffer")
+local config = require("tracks.config")
 local ts = require("tracks.treesitter")
 
 local M = {}
 
----@class Tracks.PointJumpConfig
----@field debounce_ms number
----@field max_history number
----@field min_block_lines number
----@field max_semantic_area_lines number
----@field locality_lines number
----@field max_ts_field_len number
----@field capture_priority table<string, number>
----@field exclude_filetypes string[]
----@field augroup_id number?
----@field namespace number
-local default_config = {
-    debounce_ms = 250,
-    max_history = 10,
-    min_block_lines = 12,
-    max_semantic_area_lines = 30,
-    locality_lines = 20,
-    max_ts_field_len = 32,
-    capture_priority = {
-        ["block.outer"] = 1,
-        ["function.outer"] = 2,
-        ["method.outer"] = 2,
-        ["class.outer"] = 3,
-    },
-    -- Additional filetypes excluded from this history.
-    exclude_filetypes = {},
-    augroup_id = nil,
-    namespace = vim.api.nvim_create_namespace("tracks_point_jump"),
-}
-
 ---@type Tracks.PointJumpConfig
-M.config = vim.deepcopy(default_config)
+M.config = vim.deepcopy(config.defaults.point_jump)
+
+local augroup_id = nil
+local namespace = nil
 
 ---@class Tracks.PointView : vim.fn.winrestview.dict
 ---@field lnum number
@@ -264,7 +238,7 @@ local function set_extmark(session, view, extmark_id)
     local row = math.min(view.lnum - 1, line_count - 1)
     local line = vim.api.nvim_buf_get_lines(session.bufnr, row, row + 1, false)[1]
     local col = math.min(view.col, #line)
-    return vim.api.nvim_buf_set_extmark(session.bufnr, M.config.namespace, row, col, {
+    return vim.api.nvim_buf_set_extmark(session.bufnr, namespace, row, col, {
         id = extmark_id,
         right_gravity = true,
         end_row = row,
@@ -277,8 +251,8 @@ end
 ---@param entry Tracks.PointEntry
 local function delete_entry_extmarks(session, entry)
     local extmarks = session.extmarks[entry]
-    vim.api.nvim_buf_del_extmark(session.bufnr, M.config.namespace, extmarks.anchor)
-    vim.api.nvim_buf_del_extmark(session.bufnr, M.config.namespace, extmarks.target)
+    vim.api.nvim_buf_del_extmark(session.bufnr, namespace, extmarks.anchor)
+    vim.api.nvim_buf_del_extmark(session.bufnr, namespace, extmarks.target)
     session.extmarks[entry] = nil
 end
 
@@ -286,8 +260,7 @@ end
 ---@param extmark_id number
 ---@param view Tracks.PointView
 local function refresh_view_from_extmark(session, extmark_id, view)
-    local pos =
-        vim.api.nvim_buf_get_extmark_by_id(session.bufnr, M.config.namespace, extmark_id, {})
+    local pos = vim.api.nvim_buf_get_extmark_by_id(session.bufnr, namespace, extmark_id, {})
     local old_lnum = view.lnum
     view.lnum = pos[1] + 1
     view.col = pos[2]
@@ -479,7 +452,7 @@ end
 ---@param session Tracks.PointSession
 local function create_buffer_autocmds(state, session)
     vim.api.nvim_create_autocmd("CursorMoved", {
-        group = M.config.augroup_id,
+        group = augroup_id,
         buffer = session.bufnr,
         desc = "Tracks point history: capture landing after cursor settles",
         callback = function(ev)
@@ -515,7 +488,7 @@ local function create_buffer_autocmds(state, session)
     })
 
     vim.api.nvim_create_autocmd("BufLeave", {
-        group = M.config.augroup_id,
+        group = augroup_id,
         buffer = session.bufnr,
         desc = "Tracks point history: commit pending landing before leaving",
         callback = function()
@@ -526,7 +499,7 @@ local function create_buffer_autocmds(state, session)
     })
 
     vim.api.nvim_create_autocmd("BufWipeout", {
-        group = M.config.augroup_id,
+        group = augroup_id,
         buffer = session.bufnr,
         desc = "Tracks point history: release volatile buffer state",
         callback = function()
@@ -595,28 +568,30 @@ function M.reset()
         if session then
             session.debounce:stop()
             session.debounce:close()
-            vim.api.nvim_buf_clear_namespace(session.bufnr, M.config.namespace, 0, -1)
+            vim.api.nvim_buf_clear_namespace(session.bufnr, namespace, 0, -1)
             state.session = nil
         end
     end
     M.buffers = {}
 
-    if M.config.augroup_id then
-        vim.api.nvim_clear_autocmds({ group = M.config.augroup_id })
-        M.config.augroup_id = nil
+    if augroup_id then
+        vim.api.nvim_clear_autocmds({ group = augroup_id })
+        augroup_id = nil
     end
-    M.setup()
+    M._setup(M.config)
 end
 
----@param opts Tracks.PointJumpConfig?
-function M.setup(opts)
-    if opts then M.config = vim.tbl_deep_extend("force", M.config, opts) end
+---@param normalized Tracks.PointJumpConfig
+function M._setup(normalized)
+    M.config = vim.deepcopy(normalized)
     semantic_config_generation = semantic_config_generation + 1
+    namespace = namespace or vim.api.nvim_create_namespace("tracks_point_jump")
+    if M._test then M._test.namespace = namespace end
 
-    if not M.config.augroup_id then
-        M.config.augroup_id = vim.api.nvim_create_augroup("tracks_point_jump", { clear = true })
+    if not augroup_id then
+        augroup_id = vim.api.nvim_create_augroup("tracks_point_jump", { clear = true })
         vim.api.nvim_create_autocmd("BufEnter", {
-            group = M.config.augroup_id,
+            group = augroup_id,
             desc = "Tracks point history: initialize buffer tracking",
             callback = function(ev) on_buf_enter(ev.buf) end,
         })
@@ -625,6 +600,11 @@ function M.setup(opts)
     on_buf_enter(vim.api.nvim_get_current_buf())
 end
 
-if vim.g.tracks_test then M._test = { record_point = record_point } end
+if vim.g.tracks_test then
+    M._test = {
+        namespace = namespace,
+        record_point = record_point,
+    }
+end
 
 return M

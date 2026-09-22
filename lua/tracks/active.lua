@@ -2,22 +2,13 @@
 ---@brief Small persisted working set of active files.
 
 local buf = require("tracks.buffer")
+local config = require("tracks.config")
 local scope = require("tracks.scope")
 local log = require("tracks.log")
 
 local M = {}
 
----@class Tracks.ActiveConfig
----@field max_files number
----@field storage_path string
----@field before_select fun()? Called before switching to an active file.
----@field augroup_id number?
-local default_config = {
-    max_files = 3,
-    storage_path = vim.fs.joinpath(vim.fn.stdpath("state"), "tracks-active.json"),
-    before_select = nil,
-    augroup_id = nil,
-}
+local augroup_id = nil
 
 ---@class Tracks.ActiveItem
 ---@field path string Absolute normalized path.
@@ -28,7 +19,7 @@ local default_config = {
 ---@field branch string
 
 ---@type Tracks.ActiveConfig
-M.config = vim.tbl_extend("force", {}, default_config)
+M.config = vim.deepcopy(config.defaults.active)
 
 ---@type string[] Absolute normalized paths.
 M._items = {}
@@ -378,21 +369,18 @@ function M.select(slot)
     return true
 end
 
----@param opts Tracks.ActiveConfig?
-function M.setup(opts)
-    if opts and opts.storage_path and opts.storage_path ~= M.config.storage_path then
-        M._store_loaded = false
-    end
-
-    M.config = vim.tbl_extend("force", M.config, opts or {})
+---@param normalized Tracks.ActiveConfig
+function M._setup(normalized)
+    M.config = vim.deepcopy(normalized)
+    M._store_loaded = false
 
     refresh_scope()
 
-    if not M.config.augroup_id then
-        M.config.augroup_id = vim.api.nvim_create_augroup("tracks_active", { clear = true })
+    if not augroup_id then
+        augroup_id = vim.api.nvim_create_augroup("tracks_active", { clear = true })
 
         vim.api.nvim_create_autocmd({ "BufEnter", "DirChanged" }, {
-            group = M.config.augroup_id,
+            group = augroup_id,
             desc = "Tracks active files: refresh project/branch scope",
             callback = refresh_scope,
         })

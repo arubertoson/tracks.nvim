@@ -10,7 +10,11 @@ tools-install:
     @mise install
 
 # Run every check expected to pass before committing.
-check: format-check test
+check: version-check format-check test
+
+# Verify the documented minimum Neovim version.
+version-check:
+    @nvim --headless --clean -u NONE -c "lua assert(vim.fn.has('nvim-0.13') == 1, 'tracks.nvim requires Neovim 0.13 or newer')" +qa
 
 # Format every Lua file.
 format:
