@@ -13,6 +13,8 @@ numbers.
 Together they make moving backward, moving forward, switching tasks, and returning to
 an earlier thought feel like one workflow instead of four unrelated plugins.
 
+[![tracks.nvim demonstration](https://github.com/arubertoson/tracks.nvim/releases/download/demo-assets/demo.gif)](https://github.com/arubertoson/tracks.nvim/releases/download/demo-assets/demo.gif)
+
 ## Why it exists
 
 Neovim already has jumps, buffers, marks, and alternate files. They are powerful, but
@@ -188,6 +190,29 @@ and lifecycle helpers are internal implementation details.
 - session restoration;
 - non-Git project-root heuristics;
 - preserving arbitrary cursor coordinates that have no semantic owner.
+
+## Demo recording
+
+The terminal demo is scripted with [VHS](https://github.com/charmbracelet/vhs) and uses
+an isolated Neovim configuration plus repository-owned fixtures. With VHS and its
+`ffmpeg`/`ttyd` dependencies installed, regenerate `docs/demo.gif` from the repository
+root:
+
+```sh
+just demo
+```
+
+Publish it to the reusable `demo-assets` GitHub prerelease and replace any existing
+asset with the same stable README URL:
+
+```sh
+just publish-demo
+```
+
+The recording demonstrates semantic point history, file-visit history with restored
+views, and the branch-scoped active working set. A small demo-only Lua textobject query
+keeps the recording independent of the user's Neovim configuration. Temporary persisted
+state is removed when Neovim exits.
 
 ## Development
 

@@ -1,2 +1,5 @@
 [tools]
 stylua = "2.3.0"
+# VHS 0.12.0 cancels rendering on Ubuntu before ffmpeg runs (charmbracelet/vhs#787).
+vhs = "0.11.0"
+ttyd = "1.7.7"
