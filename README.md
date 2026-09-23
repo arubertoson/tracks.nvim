@@ -66,29 +66,41 @@ vim.pack.add({
 require("tracks").setup()
 ```
 
-The plugin owns tracking and lifecycle autocmds but no global mappings.
+`setup()` installs the default navigation mappings below. Set `keymaps = false` to skip
+mapping installation, or override individual keys in the `keymaps` option.
 
 Run `:checkhealth tracks` to verify the Neovim version, current-buffer Treesitter
 parser and textobject captures, active-file storage, and project scope.
 
-## Suggested mappings
+## Default keymaps
+
+Hold Alt: left/right moves through files, up/down through points.
+
+| Key | Action |
+| --- | --- |
+| `<M-h>` / `<M-l>` | Previous / next file |
+| `<M-k>` / `<M-j>` | Previous / next point |
+| `<M-t>` | Toggle current / last file |
+
+Override individual mappings or disable one with `false`. Set `keymaps = false` to skip
+all default mappings:
+
+```lua
+require("tracks").setup({
+    keymaps = {
+        file_prev = "<C-h>",
+        point_next = false,
+    },
+})
+```
+
+Active-file commands remain opt-in; for example:
 
 ```lua
 local tracks = require("tracks")
-
--- Hold Alt: left/right moves through files, up/down through points.
-vim.keymap.set("n", "<M-h>", tracks.file_jump.prev)
-vim.keymap.set("n", "<M-l>", tracks.file_jump.next)
-vim.keymap.set("n", "<M-k>", tracks.point_jump.prev)
-vim.keymap.set("n", "<M-j>", tracks.point_jump.next)
-vim.keymap.set("n", "<M-t>", tracks.file_jump.toggle)
-
--- A small explicit working set.
 vim.keymap.set("n", "<leader>a", tracks.active.add)
 vim.keymap.set("n", "<leader>x", tracks.active.remove)
 vim.keymap.set("n", "<leader>1", function() tracks.active.select(1) end)
-vim.keymap.set("n", "<leader>2", function() tracks.active.select(2) end)
-vim.keymap.set("n", "<leader>3", function() tracks.active.select(3) end)
 ```
 
 ## How the tracks behave
@@ -156,7 +168,16 @@ require("tracks").setup({
     buffer_cache = {
         max_buffers = 8,
     },
+    keymaps = {
+        file_prev = "<M-h>",
+        file_next = "<M-l>",
+        point_prev = "<M-k>",
+        point_next = "<M-j>",
+        file_toggle = "<M-t>",
+    },
 })
+
+-- Use keymaps = false to skip the default navigation mappings.
 ```
 
 `capture_priority` can override semantic textobject precedence. The defaults prefer

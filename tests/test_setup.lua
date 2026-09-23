@@ -12,11 +12,19 @@ local leaf_modules = {
 
 local originals = {}
 local setup_calls
+local keymap_calls
+local original_keymap_set
 
 local T = MiniTest.new_set({
     hooks = {
         pre_case = function()
             setup_calls = 0
+            keymap_calls = {}
+            original_keymap_set = vim.keymap.set
+            vim.keymap.set = function(mode, lhs, rhs, opts)
+                keymap_calls[#keymap_calls + 1] =
+                    { mode = mode, lhs = lhs, rhs = rhs, opts = opts }
+            end
             package.loaded.tracks = nil
             for _, name in ipairs(leaf_modules) do
                 originals[name] = package.loaded[name]
@@ -27,6 +35,7 @@ local T = MiniTest.new_set({
             end
         end,
         post_case = function()
+            vim.keymap.set = original_keymap_set
             package.loaded.tracks = nil
             for _, name in ipairs(leaf_modules) do
                 package.loaded[name] = originals[name]
@@ -34,6 +43,38 @@ local T = MiniTest.new_set({
         end,
     },
 })
+
+T["setup installs default keymaps"] = function()
+    local tracks = require("tracks")
+    tracks.setup()
+
+    MiniTest.expect.equality(#keymap_calls, 5)
+    MiniTest.expect.equality(keymap_calls[1].lhs, "<M-h>")
+    MiniTest.expect.equality(keymap_calls[1].rhs, tracks.file_jump.prev)
+    MiniTest.expect.equality(keymap_calls[2].lhs, "<M-l>")
+    MiniTest.expect.equality(keymap_calls[2].rhs, tracks.file_jump.next)
+    MiniTest.expect.equality(keymap_calls[3].lhs, "<M-k>")
+    MiniTest.expect.equality(keymap_calls[3].rhs, tracks.point_jump.prev)
+    MiniTest.expect.equality(keymap_calls[4].lhs, "<M-j>")
+    MiniTest.expect.equality(keymap_calls[4].rhs, tracks.point_jump.next)
+    MiniTest.expect.equality(keymap_calls[5].lhs, "<M-t>")
+    MiniTest.expect.equality(keymap_calls[5].rhs, tracks.file_jump.toggle)
+end
+
+T["setup allows overriding and disabling keymaps"] = function()
+    local tracks = require("tracks")
+    tracks.setup({ keymaps = { file_prev = "<C-h>", point_next = false } })
+
+    MiniTest.expect.equality(#keymap_calls, 4)
+    MiniTest.expect.equality(keymap_calls[1].lhs, "<C-h>")
+    MiniTest.expect.equality(keymap_calls[4].lhs, "<M-t>")
+end
+
+T["setup can skip keymaps"] = function()
+    require("tracks").setup({ keymaps = false })
+
+    MiniTest.expect.equality(#keymap_calls, 0)
+end
 
 T["setup rejects a second call"] = function()
     local tracks = require("tracks")

@@ -21,6 +21,14 @@ M.file_jump = require("tracks.file_jump")
 M.active = require("tracks.active")
 M.buffer_cache = require("tracks.buffer_cache")
 
+local keymap_actions = {
+    { "file_prev", M.file_jump.prev, "Previous file" },
+    { "file_next", M.file_jump.next, "Next file" },
+    { "point_prev", M.point_jump.prev, "Previous point" },
+    { "point_next", M.point_jump.next, "Next point" },
+    { "file_toggle", M.file_jump.toggle, "Toggle current and last file" },
+}
+
 ---@param opts Tracks.Opts|nil
 function M.setup(opts)
     if setup_state ~= "new" then
@@ -39,6 +47,14 @@ function M.setup(opts)
             normalized.buffer_cache,
             function(path) return M.active.contains(path) end
         )
+        if normalized.keymaps then
+            for _, action in ipairs(keymap_actions) do
+                local lhs = normalized.keymaps[action[1]]
+                if lhs then
+                    vim.keymap.set("n", lhs, action[2], { desc = "Tracks: " .. action[3] })
+                end
+            end
+        end
     end, debug.traceback)
 
     if not ok then

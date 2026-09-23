@@ -47,17 +47,26 @@ local M = {}
 ---@class Tracks.BufferCacheOpts
 ---@field max_buffers? integer
 
+---@class Tracks.Keymaps
+---@field file_prev? string|false
+---@field file_next? string|false
+---@field point_prev? string|false
+---@field point_next? string|false
+---@field file_toggle? string|false
+
 ---@class Tracks.Opts
 ---@field point_jump? Tracks.PointJumpOpts
 ---@field file_jump? Tracks.FileJumpOpts
 ---@field active? Tracks.ActiveOpts
 ---@field buffer_cache? Tracks.BufferCacheOpts
+---@field keymaps? Tracks.Keymaps|false
 
 ---@class Tracks.Config
 ---@field point_jump Tracks.PointJumpConfig
 ---@field file_jump Tracks.FileJumpConfig
 ---@field active Tracks.ActiveConfig
 ---@field buffer_cache Tracks.BufferCacheConfig
+---@field keymaps Tracks.Keymaps|false
 
 ---@type Tracks.Config
 M.defaults = {
@@ -87,6 +96,13 @@ M.defaults = {
     },
     buffer_cache = {
         max_buffers = 8,
+    },
+    keymaps = {
+        file_prev = "<M-h>",
+        file_next = "<M-l>",
+        point_prev = "<M-k>",
+        point_next = "<M-j>",
+        file_toggle = "<M-t>",
     },
 }
 
@@ -142,6 +158,15 @@ local section_keys = {
     file_jump = true,
     active = true,
     buffer_cache = true,
+    keymaps = true,
+}
+
+local keymap_keys = {
+    file_prev = true,
+    file_next = true,
+    point_prev = true,
+    point_next = true,
+    file_toggle = true,
 }
 
 local point_keys = {
@@ -193,6 +218,10 @@ function M.normalize(opts)
         expect_table(opts.buffer_cache, "buffer_cache")
         reject_unknown(opts.buffer_cache, cache_keys, "buffer_cache")
     end
+    if opts.keymaps ~= nil and opts.keymaps ~= false then
+        expect_table(opts.keymaps, "keymaps")
+        reject_unknown(opts.keymaps, keymap_keys, "keymaps")
+    end
 
     local normalized = vim.deepcopy(M.defaults)
     normalized.point_jump =
@@ -201,6 +230,18 @@ function M.normalize(opts)
     normalized.active = vim.tbl_extend("force", normalized.active, opts.active or {})
     normalized.buffer_cache =
         vim.tbl_extend("force", normalized.buffer_cache, opts.buffer_cache or {})
+    if opts.keymaps == false then
+        normalized.keymaps = false
+    elseif opts.keymaps ~= nil then
+        normalized.keymaps = vim.tbl_extend("force", normalized.keymaps, opts.keymaps)
+    end
+    if normalized.keymaps then
+        for name, lhs in pairs(normalized.keymaps) do
+            if lhs ~= false and (type(lhs) ~= "string" or lhs == "") then
+                invalid_type(("keymaps.%s"):format(name), "a non-empty string or false", lhs)
+            end
+        end
+    end
 
     local point = normalized.point_jump
     expect_integer(point.debounce_ms, "point_jump.debounce_ms", 0)
