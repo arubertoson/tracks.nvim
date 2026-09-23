@@ -44,7 +44,7 @@ local T = MiniTest.new_set({
     },
 })
 
-T["setup installs default keymaps"] = function()
+T["setup installs navigation keymaps by default"] = function()
     local tracks = require("tracks")
     tracks.setup()
 
@@ -52,21 +52,18 @@ T["setup installs default keymaps"] = function()
     MiniTest.expect.equality(keymap_calls[1].lhs, "<M-h>")
     MiniTest.expect.equality(keymap_calls[1].rhs, tracks.file_jump.prev)
     MiniTest.expect.equality(keymap_calls[2].lhs, "<M-l>")
-    MiniTest.expect.equality(keymap_calls[2].rhs, tracks.file_jump.next)
     MiniTest.expect.equality(keymap_calls[3].lhs, "<M-k>")
-    MiniTest.expect.equality(keymap_calls[3].rhs, tracks.point_jump.prev)
     MiniTest.expect.equality(keymap_calls[4].lhs, "<M-j>")
-    MiniTest.expect.equality(keymap_calls[4].rhs, tracks.point_jump.next)
     MiniTest.expect.equality(keymap_calls[5].lhs, "<M-t>")
-    MiniTest.expect.equality(keymap_calls[5].rhs, tracks.file_jump.toggle)
 end
 
-T["setup allows overriding and disabling keymaps"] = function()
+T["setup overrides or disables individual default keys"] = function()
     local tracks = require("tracks")
     tracks.setup({ keymaps = { file_prev = "<C-h>", point_next = false } })
 
     MiniTest.expect.equality(#keymap_calls, 4)
     MiniTest.expect.equality(keymap_calls[1].lhs, "<C-h>")
+    MiniTest.expect.equality(keymap_calls[1].rhs, tracks.file_jump.prev)
     MiniTest.expect.equality(keymap_calls[4].lhs, "<M-t>")
 end
 

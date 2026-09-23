@@ -66,8 +66,8 @@ vim.pack.add({
 require("tracks").setup()
 ```
 
-`setup()` installs the default navigation mappings below. Set `keymaps = false` to skip
-mapping installation, or override individual keys in the `keymaps` option.
+`setup()` installs the default navigation mappings below. Set `keymaps = false` to
+leave global mappings to your configuration, or override individual keys with `keymaps`.
 
 Run `:checkhealth tracks` to verify the Neovim version, current-buffer Treesitter
 parser and textobject captures, active-file storage, and project scope.
@@ -82,8 +82,7 @@ Hold Alt: left/right moves through files, up/down through points.
 | `<M-k>` / `<M-j>` | Previous / next point |
 | `<M-t>` | Toggle current / last file |
 
-Override individual mappings or disable one with `false`. Set `keymaps = false` to skip
-all default mappings:
+Override a key or disable an individual mapping with `false`:
 
 ```lua
 require("tracks").setup({
@@ -177,7 +176,7 @@ require("tracks").setup({
     },
 })
 
--- Use keymaps = false to skip the default navigation mappings.
+-- Use keymaps = false to leave global bindings to your configuration.
 ```
 
 `capture_priority` can override semantic textobject precedence. The defaults prefer
