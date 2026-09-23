@@ -76,14 +76,12 @@ parser and textobject captures, active-file storage, and project scope.
 ```lua
 local tracks = require("tracks")
 
--- Semantic landings within the current file.
-vim.keymap.set("n", "<C-o>", tracks.point_jump.prev)
-vim.keymap.set("n", "<C-i>", tracks.point_jump.next)
-
--- Chronological file visits.
-vim.keymap.set("n", "<M-o>", tracks.file_jump.prev)
-vim.keymap.set("n", "<M-i>", tracks.file_jump.next)
-vim.keymap.set("n", "<M-Tab>", tracks.file_jump.toggle)
+-- Hold Alt: left/right moves through files, up/down through points.
+vim.keymap.set("n", "<M-h>", tracks.file_jump.prev)
+vim.keymap.set("n", "<M-l>", tracks.file_jump.next)
+vim.keymap.set("n", "<M-k>", tracks.point_jump.prev)
+vim.keymap.set("n", "<M-j>", tracks.point_jump.next)
+vim.keymap.set("n", "<M-t>", tracks.file_jump.toggle)
 
 -- A small explicit working set.
 vim.keymap.set("n", "<leader>a", tracks.active.add)
