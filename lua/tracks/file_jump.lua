@@ -175,27 +175,28 @@ local function navigate_to(target_index)
     update_current_view(vim.api.nvim_get_current_buf())
 
     local entry = history.entries[target_index]
-    local bufnr, missing = ensure_loaded(entry.path)
-    if not bufnr then
-        if missing then
-            log.info("Dropping missing file jump", entry.path)
-            remove_entry(target_index)
-        else
-            log.info("Cannot restore file jump", entry.path)
-        end
-        return false, missing
-    end
-
     local previous_index = history.index
+    local missing, loaded
     M._navigating = true
     local ok, err = xpcall(function()
-        if vim.api.nvim_get_current_buf() ~= bufnr then vim.api.nvim_set_current_buf(bufnr) end
+        loaded, missing = ensure_loaded(entry.path)
+        if not loaded then return end
+        if vim.api.nvim_get_current_buf() ~= loaded then vim.api.nvim_set_current_buf(loaded) end
         restore_view(entry)
     end, debug.traceback)
     M._navigating = false
 
     if not ok then
         log.warn("Failed to restore file jump", entry.path, err)
+        return false, false
+    end
+    if missing then
+        log.info("Dropping missing file jump", entry.path)
+        remove_entry(target_index)
+        return false, true
+    end
+    if not loaded then
+        log.info("Cannot restore file jump", entry.path)
         return false, false
     end
 
@@ -227,6 +228,93 @@ function M.toggle()
     local target = M.history.alternate_index
     if not target then return false end
     return navigate_to(target)
+end
+
+---Export a detached, portable trail. Capture the focused file's view; when a
+---tool buffer is focused, retain the last recorded file view.
+---@return Tracks.FileJumpHistory
+function M.snapshot()
+    update_current_view(vim.api.nvim_get_current_buf())
+    local history = M.history
+    local entries = {}
+    for i, entry in ipairs(history.entries) do
+        entries[i] = {
+            path = entry.path,
+            view = {
+                lnum = entry.view.lnum or 1,
+                col = entry.view.col or 0,
+                topline = entry.view.topline or 1,
+                leftcol = entry.view.leftcol or 0,
+            },
+        }
+    end
+    return {
+        entries = entries,
+        index = history.index,
+        alternate_index = history.alternate_index,
+    }
+end
+
+---Adopt a portable trail before or after setup. Callers own storage and scope;
+---the currently open file is appended only if it differs from the saved visit.
+---@param snapshot Tracks.FileJumpHistory
+---@param opts? { record_current: boolean } Disable adoption of the current buffer on scope changes.
+function M.import(snapshot, opts)
+    if opts ~= nil and (type(opts) ~= "table" or type(opts.record_current) ~= "boolean") then
+        error("tracks.file_jump.import(): invalid options", 2)
+    end
+    if
+        type(snapshot) ~= "table"
+        or type(snapshot.entries) ~= "table"
+        or not vim.islist(snapshot.entries)
+    then
+        error("tracks.file_jump.import(): expected a trail with entries", 2)
+    end
+    local count = #snapshot.entries
+    local index = snapshot.index
+    local alternate = snapshot.alternate_index
+    if
+        type(index) ~= "number"
+        or index % 1 ~= 0
+        or index < 0
+        or index > count
+        or (index == 0 and count ~= 0)
+        or (
+            alternate ~= nil
+            and (
+                type(alternate) ~= "number"
+                or alternate % 1 ~= 0
+                or alternate < 1
+                or alternate > count
+            )
+        )
+    then
+        error("tracks.file_jump.import(): invalid trail indices", 2)
+    end
+    local entries = {}
+    for i, entry in ipairs(snapshot.entries) do
+        local view = type(entry) == "table" and entry.view or nil
+        if
+            type(entry) ~= "table"
+            or type(entry.path) ~= "string"
+            or not vim.startswith(entry.path, "/")
+            or vim.fs.normalize(entry.path) ~= entry.path
+            or type(view) ~= "table"
+        then
+            error(("tracks.file_jump.import(): invalid entry %d"):format(i), 2)
+        end
+        for _, key in ipairs({ "lnum", "col", "topline", "leftcol" }) do
+            local value = view[key]
+            local minimum = (key == "lnum" or key == "topline") and 1 or 0
+            if type(value) ~= "number" or value % 1 ~= 0 or value < minimum then
+                error(("tracks.file_jump.import(): invalid %s in entry %d"):format(key, i), 2)
+            end
+        end
+        entries[i] = { path = entry.path, view = copy_view(view) }
+    end
+    M.history = { entries = entries, index = index, alternate_index = alternate }
+    enforce_limit()
+    if opts == nil or opts.record_current then record_enter(vim.api.nvim_get_current_buf()) end
 end
 
 ---Forget all visits and seed history from the current buffer when possible.
@@ -264,7 +352,7 @@ function M._setup(normalized)
         })
     end
 
-    if #M.history.entries == 0 then record_enter(vim.api.nvim_get_current_buf()) end
+    record_enter(vim.api.nvim_get_current_buf())
 end
 
 if vim.g.tracks_test then

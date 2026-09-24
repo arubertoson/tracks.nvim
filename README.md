@@ -125,8 +125,9 @@ evicted file from disk.
 ### Active files
 
 Active files are ordered slots, not a general bookmark database. They are persisted
-as project-relative paths under the project root and current Git branch. Switching
-branches therefore switches working sets. Missing files are removed when selected.
+as project-relative paths under the nearest `.git` or `.jj` root. Git branches
+have separate working sets; jj workspaces use their root path instead of a mutable
+change ID. Missing files are removed when selected.
 
 The plugin emits `User TracksActiveUpdated` after the active set changes.
 
@@ -192,10 +193,21 @@ The supported Lua surface is:
 
 - `require("tracks").setup(opts)`;
 - `point_jump.prev()`, `point_jump.next()`, and `point_jump.reset()`;
-- `file_jump.prev()`, `file_jump.next()`, `file_jump.toggle()`, and `file_jump.reset()`;
+- `file_jump.prev()`, `file_jump.next()`, `file_jump.toggle()`, `file_jump.reset()`,
+  `file_jump.snapshot()`, and `file_jump.import(trail, opts)`;
+- `require("tracks.scope").for_source(path)` for the nearest workspace root and
+  branch key (`"-"` for jj);
 - `active.add()`, `active.remove()`, `active.replace()`, `active.remove_all()`,
   `active.select()`, `active.index_of()`, `active.contains()`, and `active.items()`;
 - `buffer_cache.tracked()` for a copy of the current MRU path list.
+
+`file_jump.snapshot()` returns a detached `{ entries = { { path, view }, ... },
+index, alternate_index }` trail with absolute normalized paths and portable
+`lnum`, `col`, `topline`, and `leftcol` views. `file_jump.import(trail)` validates
+and adopts that shape, bounds it to `max_history`, and records the current file
+only if it differs from the selected visit. Pass `{ record_current = false }` when
+switching scopes while an unrelated file is open. Persistence and scope changes
+are the caller's responsibility; within-file semantic points remain transient.
 
 Functions and fields prefixed with `_`, module configuration tables, resource handles,
 and lifecycle helpers are internal implementation details.
@@ -206,7 +218,7 @@ and lifecycle helpers are internal implementation details.
 - a general bookmark or project-management system;
 - a bufferline or buffer picker;
 - session restoration;
-- non-Git project-root heuristics;
+- project-root heuristics beyond nearest `.git`/`.jj` markers;
 - preserving arbitrary cursor coordinates that have no semantic owner.
 
 ## Demo recording

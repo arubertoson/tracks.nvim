@@ -52,6 +52,28 @@ local function setup_buffer_cache(opts, is_pinned)
     return buffers
 end
 
+T["jj workspace takes precedence over parent Git"] = function()
+    local parent = temp_project("jj-parent", "main")
+    local workspace = parent .. "/.workspaces/child"
+    vim.fn.mkdir(workspace .. "/.jj", "p")
+    local file = temp_file(workspace, "a.lua")
+    local resolved = require("tracks.scope").for_source(file)
+    MiniTest.expect.equality(resolved.root, vim.fs.normalize(workspace))
+    MiniTest.expect.equality(resolved.branch, "-")
+
+    edit(file)
+    local storage = workspace .. "/active.json"
+    local active = setup_active(storage)
+    active.add()
+    local decoded = vim.json.decode(table.concat(vim.fn.readfile(storage), "\n"))
+    MiniTest.expect.equality(decoded[resolved.root]["-"], { "a.lua" })
+
+    -- A colocated Git checkout must not make jj pins branch-scoped.
+    vim.fn.mkdir(workspace .. "/.git", "p")
+    vim.fn.writefile({ "ref: refs/heads/feature" }, workspace .. "/.git/HEAD")
+    MiniTest.expect.equality(require("tracks.scope").for_source(file).branch, "-")
+end
+
 T["active files"] = MiniTest.new_set()
 
 T["active files"]["compacts on removal"] = function()

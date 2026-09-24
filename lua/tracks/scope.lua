@@ -1,5 +1,5 @@
 ---@module "tracks.scope"
----Synchronous project and Git branch scope for persisted active files.
+---Synchronous nearest workspace scope for persisted active files.
 
 local M = {}
 
@@ -59,11 +59,12 @@ function M.for_source(source)
     local path = path_from_source(source)
     if not path then return nil end
 
-    local root = vim.fs.root(path, { ".git" })
+    local root = vim.fs.root(path, { ".jj", ".git" })
         or normalize(vim.uv.cwd() or vim.fs.dirname(path) or path)
     if not root then return nil end
     root = normalize(root)
-    return { root = root, branch = branch(root) }
+    local jj = vim.uv.fs_stat(vim.fs.joinpath(root, ".jj"))
+    return { root = root, branch = jj and "-" or branch(root) }
 end
 
 return M
